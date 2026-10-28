@@ -16,7 +16,7 @@ test("directory-only inventory loads and paginates UI sessions without claiming 
     ? { isGitRepo: true, worktrees: [{ slug: "root", directory: folder, kind: "root" }] }
     : { gitAvailable: false, worktrees: [{ slug: "root", directory: folder, serviceDirectory: folder, kind: "root", directoryOnly: true }] }
   const requests: any[] = []
-  const session = (id: string) => ({ id, title: id, projectID: "project", location: { directory: folder },
+  const session = (id: string, directory = folder) => ({ id, title: id, projectID: "project", location: { directory },
     cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } })
   let ancestorReads = 0
   const client: any = { session: { active: async () => ({}), get: async () => {
@@ -25,8 +25,8 @@ test("directory-only inventory loads and paginates UI sessions without claiming 
   }, list: async (input: any) => {
     requests.push(input)
     if (!gitAvailable) assert.equal(input.project, undefined, "never request canonical project scope for an opened subfolder without Git")
-    if (input.cursor) return { data: [session("older"), ...(gitAvailable ? [] : [{ ...session("local-child"), parentID: "foreign-parent" }])], cursor: {} }
-    return { data: [session("newer")], cursor: { next: "directory-page-2" } }
+    if (input.cursor) return { data: [session("older")], cursor: {} }
+    return { data: [session("newer"), ...(gitAvailable ? [] : [{ ...session("foreign-child", `${folder}/nested-repository`), parentID: "foreign-parent" }])], cursor: { next: "directory-page-2" } }
   } } }
   ;(sdkManager as any).clients.set(`${id}:/workspaces/${id}/instance`, client)
   addInstance({ id, folder, port: 0, pid: 0, proxyPath: "", status: "ready", client })
@@ -34,14 +34,15 @@ test("directory-only inventory loads and paginates UI sessions without claiming 
   try {
     await fetchSessions(id, { reset: true, strictStatus: true })
     assert.equal(getSessionListError(id), undefined)
-    assert.deepEqual(new Set(getSessionListIds(id)), new Set(["newer", "older", "local-child"]))
-    assert.equal(sessions().get(id)?.size, 3)
+    assert.deepEqual(new Set(getSessionListIds(id)), new Set(["newer", "older"]))
+    assert.equal(sessions().get(id)?.size, 2)
     assert.equal(ancestorReads, 0, "do not request parents outside the directory inventory")
-    assert.equal(sessions().get(id)?.get("local-child")?.parentId, "foreign-parent")
-    assert.equal(getSessionRoot(id, "local-child")?.id, "local-child")
-    assert.ok(getSessionThreads(id).some(thread => thread.session.id === "local-child"))
+    assert.equal(sessions().get(id)?.has("foreign-child"), false)
+    assert.equal(getSessionRoot(id, "older")?.id, "older")
+    assert.ok(getSessionThreads(id).some(thread => thread.session.id === "older"))
     await fetchSessions(id, { reset: true, strictStatus: true })
-    assert.ok(getSessionListIds(id).includes("local-child"), "reconciliation preserves the local display root")
+    assert.deepEqual(new Set(getSessionListIds(id)), new Set(["newer", "older"]))
+    assert.equal(sessions().get(id)?.has("foreign-child"), false)
     assert.equal(getGitRepoStatus(id), null)
     assert.equal(getDirectoryOnlyWorktree(id)?.directory, folder)
     assert.ok(requests.some(input => input.directory === folder))

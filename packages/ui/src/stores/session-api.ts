@@ -628,8 +628,15 @@ async function fetchSessions(instanceId: string, options?: {
       if (options?.strictStatus) throw new Error("Foreground session refresh was superseded")
       return
     }
-    const rootApiSessions = getV2SessionItems(response)
+    // Scope with worktrees already known. A pending checkout read must not
+    // hold opened-folder rows; complete reconciliation still waits for membership.
+    const rootApiSessions = selectWorkspaceSessionFamilies(
+      getV2SessionItems(response),
+      instance.folder ?? "",
+      getWorktrees(instanceId),
+    )
     const publishPartialPage = (page: SDKSession[]) => {
+      if (!isCurrent()) return
       const deletedSessionIds = getAuthoritativelyDeletedSessionIdsForInstance(instanceId)
       setSessions((prev) => {
         const next = new Map(prev)
